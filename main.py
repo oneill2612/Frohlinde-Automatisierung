@@ -25,7 +25,6 @@ def hole_spieldaten():
             if btn.count() > 0: btn.first.click(timeout=3000)
         except: pass
 
-        # FEHLER BEHOBEN: Wir warten spezifisch auf die echten Fussball-Tabellen (.club-name)
         try:
             page.wait_for_selector(".club-name", timeout=10000)
         except: pass
@@ -47,83 +46,86 @@ def hole_spieldaten():
 
     sa_str = "26.09.2026"
     so_str = "27.09.2026"
-    
-    sa_such_datum = "26.09."
-    so_such_datum = "27.09."
-    
+
     aktuelles_datum_str = ""
     aktuelle_zeit = "--:--"
     aktueller_wettbewerb = "Senioren"
-    
+
     for tr in soup.find_all("tr"):
         row_text = tr.get_text(" ", strip=True)
         row_text = bereinige_string(row_text)
-        
+
         if not row_text: continue
 
-        clubs = tr.select(".club-name, .column-club")
-        is_match_row = len(clubs) >= 2 or (" : " in row_text)
+        # 1. ALLES auslesen, was in der Zeile steht (egal ob Datum oder Team)
+        date_match = re.search(r'(Mo|Di|Mi|Do|Fr|Sa|So),\s*(\d{2}\.\d{2}\.)', row_text)
+        if date_match:
+            aktuelles_datum_str = date_match.group(2)
 
-        if not is_match_row:
-            # 1. Info-Zeile parsen
-            date_match = re.search(r'(Mo|Di|Mi|Do|Fr|Sa|So),\s*(\d{2}\.\d{2}\.)', row_text)
-            if date_match:
-                aktuelles_datum_str = date_match.group(2)
-                
-            time_match = re.search(r'\b(\d{1,2}:\d{2})\b', row_text)
-            if time_match:
-                aktuelle_zeit = time_match.group(1)
-                
-            team_match = re.search(r'([A-G]\d?-Junioren|\d+\.\s*Mannschaft|Herren|Frauen)', row_text, re.IGNORECASE)
-            if team_match:
-                aktueller_wettbewerb = team_match.group(1).strip()
-        else:
-            # 2. Spiel-Zeile parsen
-            if sa_such_datum in aktuelles_datum_str:
+        time_match = re.search(r'\b(\d{1,2}:\d{2})\b', row_text)
+        if time_match:
+            aktuelle_zeit = time_match.group(1)
+
+        team_match = re.search(r'([A-G]\d?-Junioren|\d+\.\s*Mannschaft|Herren|Frauen|Alte Herren)', row_text, re.IGNORECASE)
+        if team_match:
+            aktueller_wettbewerb = team_match.group(1).strip()
+
+        # 2. Prüfen, ob Vereine in der Zeile stehen
+        clubs = tr.select(".club-name, .column-club")
+        heim, gast = "", ""
+
+        if len(clubs) >= 2:
+            heim = bereinige_string(clubs[0].get_text(strip=True))
+            gast = bereinige_string(clubs[-1].get_text(strip=True))
+        elif ":" in row_text or "-" in row_text:
+            trenner = ":" if ":" in row_text else "-"
+            parts = row_text.split(trenner)
+            if len(parts) >= 2:
+                heim_parts = parts[0].strip().split()
+                heim = " ".join(heim_parts[-3:]) if len(heim_parts) >= 3 else parts[0].strip()
+                gast_parts = parts[1].strip().split()
+                gast = " ".join(gast_parts[:3]) if len(gast_parts) >= 3 else parts[1].strip()
+
+        # 3. Spiel nur speichern, wenn Frohlinde dabei ist UND wir das Datum bereits kennen
+        if ("Frohlinde" in heim or "Frohlinde" in gast) and aktuelles_datum_str:
+            if "26.09." in aktuelles_datum_str:
                 tag = "SA"
-            elif so_such_datum in aktuelles_datum_str:
+            elif "27.09." in aktuelles_datum_str:
                 tag = "SO"
             else:
-                continue 
+                continue  # Anderes Wochenende, überspringen!
 
-            heim, gast = "", ""
-            if len(clubs) >= 2:
-                heim = bereinige_string(clubs[0].get_text(strip=True))
-                gast = bereinige_string(clubs[-1].get_text(strip=True))
-            else:
-                parts = row_text.split(":")
-                if len(parts) >= 2:
-                    heim_parts = parts[0].strip().split()
-                    heim = " ".join(heim_parts[-3:]) if len(heim_parts) >= 3 else parts[0].strip()
-                    gast_parts = parts[1].strip().split()
-                    gast = " ".join(gast_parts[:3]) if len(gast_parts) >= 3 else parts[1].strip()
+            ist_heim = "Frohlinde" in heim
+            ist_turnier = "turnier" in aktueller_wettbewerb.lower() or "TU |" in row_text
 
-            if "Frohlinde" in heim or "Frohlinde" in gast:
-                ist_heim = "Frohlinde" in heim
-                ist_turnier = "turnier" in aktueller_wettbewerb.lower()
-                
-                spiele.append({
-                    "tag": tag,
-                    "zeit": aktuelle_zeit,
-                    "team": aktueller_wettbewerb,
-                    "heim": heim,
-                    "gast": gast,
-                    "ist_heim": ist_heim,
-                    "ist_turnier": ist_turnier
-                })
+            spiele.append({
+                "tag": tag,
+                "zeit": aktuelle_zeit,
+                "team": aktueller_wettbewerb,
+                "heim": heim,
+                "gast": gast,
+                "ist_heim": ist_heim,
+                "ist_turnier": ist_turnier
+            })
 
-    if not spiele:
-        spiele.append({
+    # Doppelte Einträge filtern
+    unique_spiele = []
+    for sp in spiele:
+        if sp not in unique_spiele:
+            unique_spiele.append(sp)
+
+    if not unique_spiele:
+        unique_spiele.append({
             "tag": "SA",
             "zeit": "00:00",
             "team": "Fehler-Diagnose",
-            "heim": f"Keine Daten für {sa_such_datum} oder {so_such_datum} gefunden",
-            "gast": "Wurden auf Fussball.de schon Spiele eingetragen?",
+            "heim": "Keine Daten gefunden",
+            "gast": "Datum wurde im Code nicht erkannt",
             "ist_heim": True,
             "ist_turnier": False
         })
 
-    return sa_str, so_str, spiele
+    return sa_str, so_str, unique_spiele
 
 def erstelle_und_sende():
     sa_str, so_str, spiele = hole_spieldaten()
