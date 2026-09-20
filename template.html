@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Wochenend-Spielplan FC Frohlinde</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800;900&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    width: 1080px;
+    height: 1920px;
+    font-family: 'Montserrat', sans-serif;
+    color: #ffffff;
+    background: radial-gradient(circle at 50% 35%, #0d4b9b 0%, #052654 60%, #021226 100%);
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 260px 40px 40px 40px;
+  }
+
+  .bg-watermark {
+    position: absolute;
+    right: -40px;
+    bottom: 30px;
+    width: 480px;
+    height: 480px;
+    opacity: 0.10;
+    pointer-events: none;
+  }
+
+  .grid-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 30px;
+    z-index: 2;
+  }
+
+  .column {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .day-header {
+    font-size: 30px;
+    font-weight: 900;
+    font-style: italic;
+    color: #ffffff;
+    border-bottom: 2px solid rgba(255, 255, 255, 0.4);
+    padding-bottom: 6px;
+  }
+
+  .section-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #ffffff;
+    color: #0b3469;
+    padding: 6px 16px;
+    font-size: 22px;
+    font-weight: 900;
+    font-style: italic;
+    border-radius: 4px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    margin-top: 6px;
+  }
+
+  .match-list {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .match-card {
+    display: flex;
+    align-items: center;
+    background: rgba(4, 25, 59, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    padding: 6px 10px;
+  }
+
+  .match-time {
+    font-size: 15px;
+    font-weight: 800;
+    width: 65px;
+    border-right: 1px solid rgba(255, 255, 255, 0.2);
+    margin-right: 10px;
+    line-height: 1.1;
+    text-align: center;
+  }
+  .match-time span {
+    font-size: 10px;
+    display: block;
+    color: #9cbce6;
+  }
+
+  .match-info {
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .match-team {
+    font-size: 12px;
+    font-weight: 800;
+    color: #5da0ff;
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .match-pairing {
+    font-size: 13px;
+    font-weight: 700;
+    color: #ffffff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tourney-box {
+    background: rgba(14, 46, 92, 0.7);
+    border: 1px dashed rgba(255, 255, 255, 0.35);
+    border-radius: 6px;
+    padding: 8px 10px;
+  }
+
+  .tourney-title {
+    font-size: 13px;
+    font-weight: 800;
+    color: #ffd24d;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+
+  .tourney-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .tourney-row:last-child { border-bottom: none; }
+
+  .footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    border-top: 1px solid rgba(255, 255, 255, 0.25);
+    padding-top: 16px;
+    z-index: 2;
+  }
+
+  .slogan {
+    font-size: 22px;
+    font-weight: 900;
+    font-style: italic;
+  }
+
+  .socials {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: 14px;
+    font-weight: 700;
+    color: #b0ccef;
+  }
+</style>
+</head>
+<body>
+
+<svg class="bg-watermark" viewBox="0 0 100 100">
+  <path fill="#ffffff" d="M50 5 L88 20 C88 55 50 88 50 88 C50 88 12 55 12 20 Z"/>
+</svg>
+
+<div class="grid-container">
+  <!-- SAMSTAG -->
+  <div class="column">
+    <div class="day-header">{{ samstag_datum }}</div>
+
+    <div class="section-banner">HEIMSPIELE</div>
+    <div class="match-list">
+      {% for m in samstag_heim %}
+      <div class="match-card">
+        <div class="match-time">{{ m.zeit }}<span>UHR</span></div>
+        <div class="match-info">
+          <div class="match-team">{{ m.team }}</div>
+          <div class="match-pairing">{{ m.heim }} – {{ m.gast }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="section-banner">AUSWÄRTSSPIELE</div>
+    <div class="match-list">
+      {% for m in samstag_auswaerts %}
+      <div class="match-card">
+        <div class="match-time">{{ m.zeit }}<span>UHR</span></div>
+        <div class="match-info">
+          <div class="match-team">{{ m.team }}</div>
+          <div class="match-pairing">{{ m.heim }} – {{ m.gast }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- SONNTAG -->
+  <div class="column">
+    <div class="day-header">{{ sonntag_datum }}</div>
+
+    <div class="section-banner">HEIMSPIELE</div>
+    <div class="match-list">
+      {% for m in sonntag_heim %}
+      <div class="match-card">
+        <div class="match-time">{{ m.zeit }}<span>UHR</span></div>
+        <div class="match-info">
+          <div class="match-team">{{ m.team }}</div>
+          <div class="match-pairing">{{ m.heim }} – {{ m.gast }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="section-banner">AUSWÄRTSSPIELE</div>
+    <div class="match-list">
+      {% for m in sonntag_auswaerts %}
+      <div class="match-card">
+        <div class="match-time">{{ m.zeit }}<span>UHR</span></div>
+        <div class="match-info">
+          <div class="match-team">{{ m.team }}</div>
+          <div class="match-pairing">{{ m.heim }} – {{ m.gast }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if turniere %}
+    <div class="tourney-box">
+      <div class="tourney-title">🏆 Turnierspiele</div>
+      {% for t in turniere %}
+      <div class="tourney-row">
+        <span>{{ t.zeit }} Uhr</span>
+        <span>{{ t.heim }} vs. {{ t.gast }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="footer">
+  <div>
+    <div class="slogan">GEMEINSAM. STARK. FROHLINDE.</div>
+    <div class="socials">
+      <span>#FCFROHLINDE</span> • <span>Instagram</span> • <span>Facebook</span> • <span>TikTok</span>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
