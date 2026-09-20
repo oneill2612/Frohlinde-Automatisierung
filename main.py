@@ -10,7 +10,9 @@ from playwright.sync_api import sync_playwright
 URL = "https://www.fussball.de/verein/fc-frohlinde-westfalen/-/id/00ES8GN8OC00006VVV0AG08LVUPGND5I#!/"
 
 def bereinige_team(text):
-    if not text: return ""
+    if not text:
+        return ""
+    # Bereinigt unsichtbare Leerzeichen und typische Fussball.de-Zusätze
     text = re.sub(r'[\u200b\u200e\u200f\xa0]', ' ', text)
     text = re.sub(r'\b(AME|ME|FS|TU|Kinderfußball|Kreisliga\s*[A-Z0-9]?|Bezirksliga\s*[A-Z0-9]?|Kreisklasse\s*[A-Z0-9]?|Kreisfreundschaftsspiele|Vereinsturnier)\b', '', text, flags=re.IGNORECASE)
     text = re.sub(r'\s+', ' ', text)
@@ -22,7 +24,7 @@ def hole_spieldaten():
         page = browser.new_page(viewport={"width": 1920, "height": 1080})
         page.goto(URL, timeout=60000, wait_until="networkidle")
 
-        # 1. Cookie-Banner per JavaScript wegklicken
+        # 1. Cookie-Banner per JavaScript schließen
         try:
             page.evaluate("""() => {
                 const btns = Array.from(document.querySelectorAll('button, a'));
@@ -33,13 +35,11 @@ def hole_spieldaten():
         except Exception:
             pass
 
-        # 2. "Mehr laden" zuverlässig per JavaScript klicken
-        for runde in range(12):
-            # Ans Ende scrollen
+        # 2. "Mehr laden" mehrfach per JavaScript auslösen
+        for _ in range(12):
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             page.wait_for_timeout(1200)
 
-            # Button per Text finden und auslösen
             geklickt = page.evaluate("""() => {
                 const elements = Array.from(document.querySelectorAll('a, button, div, span'));
                 const btn = elements.reverse().find(el => {
@@ -55,7 +55,7 @@ def hole_spieldaten():
             }""")
 
             if geklickt:
-                page.wait_for_timeout(2500)  # Dem Nachladen Zeit geben
+                page.wait_for_timeout(2500)
             else:
                 break
 
@@ -65,13 +65,11 @@ def hole_spieldaten():
     soup = BeautifulSoup(html, "html.parser")
     spiele = []
 
-    # Dynamisches Wochenende:
-    # Heute (So) -> nimmt 26./27.09.
-    # An einem Donnerstag -> nimmt Sa/So der aktuellen Woche!
+    # Dynamische Berechnung des anstehenden Wochenendes:
     heute = datetime.now()
     tage_bis_sa = (5 - heute.weekday()) % 7
     if tage_bis_sa == 0:
-        tage_bis_sa = 7  # Wenn heute Sa ist, nächstes WE anpeilen
+        tage_bis_sa = 7  # Wenn heute Samstag ist, nimm das nächste Wochenende
 
     samstag = heute + timedelta(days=tage_bis_sa)
     sonntag = samstag + timedelta(days=1)
@@ -91,26 +89,25 @@ def hole_spieldaten():
         if not row_text:
             continue
 
-        # Tag-Erkennung
+        # Tag-Erkennung (anhand von z.B. "26.09." oder "27.09.")
         if sa_tag in row_text:
             aktueller_tag = "SA"
         elif so_tag in row_text:
             aktueller_tag = "SO"
         elif re.search(r'\b\d{2}\.\d{2}\.\b', row_text) and (sa_tag not in row_text and so_tag not in row_text):
-            # Anderes Datum (z.B. Do davor oder Di danach)
             aktueller_tag = None
 
-        # Uhrzeit
+        # Uhrzeit filtern
         t_match = re.search(r'\b(\d{1,2}:\d{2})\b', row_text)
         if t_match:
             aktuelle_zeit = t_match.group(1)
 
-        # Altersklasse / Team
+        # Altersklasse / Team filtern
         team_match = re.search(r'([A-G]\d?-Junioren|\d+\.\s*Mannschaft|Herren|Frauen|Alte Herren)', row_text, re.IGNORECASE)
         if team_match:
             aktuelles_team = team_match.group(1).strip()
 
-        # Vereine prüfen
+        # Vereine auslesen
         clubs = tr.select(".club-name")
         if len(clubs) >= 2 and aktueller_tag:
             heim = clubs[0].get_text(strip=True)
@@ -157,7 +154,7 @@ def erstelle_und_sende():
     with open("output.html", "w", encoding="utf-8") as f:
         f.write(rendered_html)
 
-    # Screenshot in 1080x1920 erstellen
+    # Screenshot in Story-Auflösung 1080x1920
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1080, "height": 1920})
