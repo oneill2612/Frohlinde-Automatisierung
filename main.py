@@ -2,47 +2,37 @@ import os
 import re
 import time
 import requests
-from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 from jinja2 import Template
 from playwright.sync_api import sync_playwright
 
 URL = "https://www.fussball.de/verein/fc-frohlinde-westfalen/-/id/00ES8GN8OC00006VVV0AG08LVUPGND5I#!/"
 
-def bereinige_team(text):
-    if not text:
-        return ""
-    # Bereinigt Liga-Zusätze und unsichtbare Zeichen von fussball.de
+def bereinige_string(text):
+    if not text: return ""
     text = re.sub(r'[\u200b\u200e\u200f\xa0]', ' ', text)
-    text = re.sub(r'\b(AME|ME|FS|TU|Kinderfußball|Kreisliga\s*[A-Z0-9]?|Bezirksliga\s*[A-Z0-9]?|Kreisklasse\s*[A-Z0-9]?|Kreisfreundschaftsspiele|Vereinsturnier)\b', '', text, flags=re.IGNORECASE)
     text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
 def hole_spieldaten():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page(viewport={"width": 1400, "height": 1000})
+        page = browser.new_page(viewport={"width": 1920, "height": 1080})
         page.goto(URL, timeout=60000, wait_until="networkidle")
 
-        # 1. Cookie-Banner schließen
         try:
-            btn = page.locator("button:has-text('Zustimmen'), button:has-text('Akzeptieren'), #cmpwelcomebtnyes a")
-            if btn.count() > 0:
-                btn.first.click(timeout=3000)
-        except Exception:
-            pass
+            btn = page.locator("button:has-text('Zustimmen')")
+            if btn.count() > 0: btn.first.click(timeout=3000)
+        except: pass
 
-        # 2. "Mehr laden" klicken (bis zu 12 Mal), damit auch Vortage/Samstag da sind
         for _ in range(12):
             try:
-                load_more = page.locator(".load-more-button, a:has-text('Mehr laden')")
-                if load_more.count() > 0 and load_more.first.is_visible():
-                    load_more.first.click()
+                btn = page.locator(".load-more-button")
+                if btn.count() > 0 and btn.first.is_visible():
+                    btn.first.click()
                     page.wait_for_timeout(1500)
-                else:
-                    break
-            except Exception:
-                break
+                else: break
+            except: break
 
         html = page.content()
         browser.close()
@@ -50,72 +40,81 @@ def hole_spieldaten():
     soup = BeautifulSoup(html, "html.parser")
     spiele = []
 
-    # Relevantes Wochenende ermitteln (aktuelles/nächstes Wochenende)
-    heute = datetime.now()
-    if heute.weekday() in [5, 6]: # Sa oder So
-        samstag = heute - timedelta(days=(heute.weekday() - 5))
-    else:
-        tage_bis_sa = (5 - heute.weekday()) % 7
-        samstag = heute + timedelta(days=tage_bis_sa)
-    sonntag = samstag + timedelta(days=1)
-
-    sa_str = samstag.strftime("%d.%m.%Y")
-    so_str = sonntag.strftime("%d.%m.%Y")
-    sa_short = samstag.strftime("%d.%m")
-    so_short = sonntag.strftime("%d.%m")
-
-    aktueller_tag = None
+    # HART CODIERT AUF NÄCHSTES WOCHENENDE FÜR DEN TEST (26.09. und 27.09.)
+    sa_str = "26.09.2026"
+    so_str = "27.09.2026"
+    
+    # Suche alle Spiele in den Match-Zeilen
+    match_rows = soup.select(".match-row")
+    
+    # Wir iterieren durch die Tabelle. Da Datum und Uhrzeit oft in separaten Headern (row-headline) 
+    # VOR den Spielen stehen, müssen wir uns diese merken.
+    aktuelles_datum = None
     aktuelle_zeit = "--:--"
-    aktuelles_team = "Team"
-    ist_turnier = False
-
-    # Alle Zeilen der Tabelle durchgehen
-    for tr in soup.select("table tr"):
-        text = tr.get_text(" ", strip=True)
-        text = re.sub(r'[\u200b\u200e\u200f\xa0]', ' ', text)
-
-        # Typ 1: Datums- und Team-Überschrift (z.B. "Sonntag, 20.09.2026 - 11:00 Uhr | A-Junioren | Kreisliga A")
-        if ("Samstag" in text or "Sonntag" in text) and "Uhr" in text:
-            if sa_short in text or "Samstag" in text:
-                aktueller_tag = "SA"
-            elif so_short in text or "Sonntag" in text:
-                aktueller_tag = "SO"
+    aktueller_wettbewerb = "Senioren"
+    
+    for tr in soup.select("table tbody tr"):
+        row_class = tr.get("class", [])
+        
+        # 1. Wenn es eine Header-Zeile ist, merke dir die Metadaten
+        if "row-headline" in row_class:
+            header_text = tr.get_text(" ", strip=True)
+            
+            # Datum extrahieren (z.B. "Samstag, 26.09.2026")
+            if "26.09.2026" in header_text:
+                aktuelles_datum = "SA"
+            elif "27.09.2026" in header_text:
+                aktuelles_datum = "SO"
             else:
-                aktueller_tag = None
-
-            # Zeit filtern (z.B. 11:00)
-            t_match = re.search(r'(\d{1,2}:\d{2})\s*Uhr', text)
-            if t_match:
-                aktuelle_zeit = t_match.group(1)
-
-            # Team-Klasse filtern (z.B. A-Junioren, 1. Mannschaft etc.)
-            m_team = re.search(r'\|\s*([A-G]\d?-Junioren|\d+\.\s*Mannschaft|Herren|Frauen)', text, re.IGNORECASE)
-            if m_team:
-                aktuelles_team = m_team.group(1).strip()
-            else:
-                aktuelles_team = "FC Frohlinde"
-
-            ist_turnier = "turnier" in text.lower() or "tu |" in text.lower()
-            continue
-
-        # Typ 2: Spielpaarung (enthält die beiden Vereine)
-        clubs = tr.select(".club-name, td.column-club")
-        if len(clubs) >= 2 and aktueller_tag:
-            heim = clubs[0].get_text(strip=True)
-            gast = clubs[1].get_text(strip=True)
-
-            if "Frohlinde" in heim or "Frohlinde" in gast:
-                ist_heim = "Frohlinde" in heim
-                spiele.append({
-                    "tag": aktueller_tag,
-                    "zeit": aktuelle_zeit,
-                    "team": bereinige_team(aktuelles_team),
-                    "heim": bereinige_team(heim),
-                    "gast": bereinige_team(gast),
-                    "ist_heim": ist_heim,
-                    "ist_turnier": ist_turnier
-                })
-
+                aktuelles_datum = None # Falsches Wochenende, ignorieren
+                
+            # Zeit extrahieren
+            t_match = re.search(r'(\d{1,2}:\d{2})', header_text)
+            if t_match: aktuelle_zeit = t_match.group(1)
+            
+            # Team / Wettbewerb extrahieren (nach dem Pipe-Symbol)
+            if "|" in header_text:
+                parts = header_text.split("|")
+                if len(parts) > 1:
+                    raw_team = parts[1]
+                    # Kürzel entfernen
+                    clean_team = re.sub(r'(AME|ME|FS|TU|Kreisliga.*?|Bezirksliga.*?)', '', raw_team, flags=re.IGNORECASE)
+                    aktueller_wettbewerb = bereinige_string(clean_team)
+            
+            continue # Springe zur nächsten Zeile (dem eigentlichen Spiel)
+            
+        # 2. Wenn es eine Spiel-Zeile ist und wir am richtigen Wochenende sind
+        if "match-row" in row_class and aktuelles_datum is not None:
+            # Heim- und Gastmannschaft exakt über die dafür vorgesehenen CSS-Klassen auslesen
+            heim_node = tr.select_one(".club-name-home, .column-club:nth-of-type(3)")
+            gast_node = tr.select_one(".club-name-guest, .column-club:nth-of-type(5)")
+            
+            # Wenn es diese Klassen nicht gibt (passiert bei Turnieren), nimm allgemeine Klassen
+            if not heim_node or not gast_node:
+                clubs = tr.select(".club-name")
+                if len(clubs) >= 2:
+                    heim_node = clubs[0]
+                    gast_node = clubs[1]
+            
+            if heim_node and gast_node:
+                heim = bereinige_string(heim_node.get_text(strip=True))
+                gast = bereinige_string(gast_node.get_text(strip=True))
+                
+                # Wir nehmen das Spiel nur auf, wenn Frohlinde auch mitspielt
+                if "Frohlinde" in heim or "Frohlinde" in gast:
+                    ist_heim = "Frohlinde" in heim
+                    ist_turnier = "turnier" in aktueller_wettbewerb.lower()
+                    
+                    spiele.append({
+                        "tag": aktuelles_datum,
+                        "zeit": aktuelle_zeit,
+                        "team": aktueller_wettbewerb,
+                        "heim": heim,
+                        "gast": gast,
+                        "ist_heim": ist_heim,
+                        "ist_turnier": ist_turnier
+                    })
+                    
     return sa_str, so_str, spiele
 
 def erstelle_und_sende():
@@ -137,7 +136,6 @@ def erstelle_und_sende():
     with open("output.html", "w", encoding="utf-8") as f:
         f.write(rendered_html)
 
-    # Screenshot erstellen
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1080, "height": 1920})
@@ -145,7 +143,6 @@ def erstelle_und_sende():
         page.screenshot(path="spielplan.png")
         browser.close()
 
-    # Per Telegram versenden
     token = os.environ.get("TELEGRAM_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     if token and chat_id:
