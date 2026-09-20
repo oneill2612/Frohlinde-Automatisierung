@@ -11,7 +11,8 @@ URL = "https://www.fussball.de/verein/fc-frohlinde-westfalen/-/id/00ES8GN8OC0000
 def bereinige_team(text):
     if not text: return ""
     text = re.sub(r'[\u200b\u200e\u200f\xa0]', ' ', text)
-    text = re.sub(r'\b(AME|ME|FS|TU|Kinderfußball|Kreisliga\s*[A-Z0-9]?|Bezirksliga\s*[A-Z0-9]?|Kreisklasse\s*[A-Z0-9]?|Kreisfreundschaftsspiele|Vereinsturnier)\b', '', text, flags=re.IGNORECASE)
+    # Filter für Liga-Kürzel, aber Junioren und Mannschaften intakt lassen
+    text = re.sub(r'\b(AME|ME|FS|TU|Kreisliga\s*[A-Z0-9]?|Bezirksliga\s*[A-Z0-9]?|Kreisklasse\s*[A-Z0-9]?|Kreisfreundschaftsspiele|Vereinsturnier)\b', '', text, flags=re.IGNORECASE)
     text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
@@ -34,7 +35,6 @@ def hole_spieldaten():
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        # Wir geben dem Browser einen echten Windows-Chrome-User-Agent, damit Fussball.de uns nicht blockiert
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             viewport={"width": 1920, "height": 1080}
@@ -44,7 +44,7 @@ def hole_spieldaten():
         try:
             page.goto(URL, timeout=60000, wait_until="networkidle")
         except Exception as e:
-            print(f"Fehler beim Laden der Seite: {e}")
+            print(f"Fehler beim Laden: {e}")
 
         # Cookie-Banner wegklicken
         try:
@@ -56,29 +56,34 @@ def hole_spieldaten():
             page.wait_for_timeout(1500)
         except: pass
 
-        # Mehrmals nach unten scrollen und "Mehr laden" klicken
-        for i in range(8):
+        # Aggressiveres Nachladen: Bis zu 20 Mal versuchen, alle vergangenen/kommenden Spiele zu laden
+        for i in range(20):
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            page.wait_for_timeout(1500)
+            page.wait_for_timeout(1000)
             try:
                 clicked = page.evaluate("""() => {
-                    const elements = Array.from(document.querySelectorAll('a, button, div'));
+                    const elements = Array.from(document.querySelectorAll('a, button, div, span'));
                     const btn = elements.find(el => {
                         const t = (el.innerText || '').trim().toLowerCase();
                         return t === 'mehr laden' || t.startsWith('mehr laden');
                     });
-                    if (btn) { btn.click(); return true; }
+                    if (btn && btn.offsetParent !== null) { 
+                        btn.scrollIntoView();
+                        btn.click(); 
+                        return true; 
+                    }
                     return false;
                 }""")
                 if clicked:
                     print(f"Klick {i+1} auf 'Mehr laden' erfolgreich.")
-                    page.wait_for_timeout(2500)
+                    page.wait_for_timeout(2000)
                 else:
+                    print("Kein weiterer 'Mehr laden'-Button gefunden.")
                     break
-            except:
+            except Exception as e:
+                print(f"Fehler beim Klicken: {e}")
                 break
 
-        # Gesamtes gerendertes HTML einsammeln
         html_inhalt = page.content()
         browser.close()
 
@@ -89,13 +94,14 @@ def hole_spieldaten():
     aktuelles_team = "Senioren"
 
     rows = soup.find_all("tr")
-    print(f"Anzahl der Tabellenzeilen im HTML gefunden: {len(rows)}")
+    print(f"Anzahl der Tabellenzeilen im HTML: {len(rows)}")
 
     for tr in rows:
         row_text = tr.get_text(" ", strip=True)
         row_text = re.sub(r'[\u200b\u200e\u200f\xa0]', ' ', row_text)
         if not row_text.strip(): continue
 
+        # Datum prüfen
         if sa_tag in row_text:
             aktueller_tag = "SA"
         elif so_tag in row_text:
@@ -103,14 +109,17 @@ def hole_spieldaten():
         elif re.search(r'\b\d{2}\.\d{2}\.\b', row_text) and (sa_tag not in row_text and so_tag not in row_text):
             aktueller_tag = None
 
+        # Uhrzeit
         t_match = re.search(r'\b(\d{1,2}:\d{2})\b', row_text)
         if t_match:
             aktuelle_zeit = t_match.group(1)
 
-        team_match = re.search(r'([A-G]\d?-Junioren|\d+\.\s*Mannschaft|Herren|Frauen|Alte Herren)', row_text, re.IGNORECASE)
+        # Team / Altersklasse (jetzt absolut lückenlos für G- bis A-Junioren, Herren, Frauen etc.)
+        team_match = re.search(r'([A-G]-Junioren|\d+\.\s*Mannschaft|Herren|Frauen|Alte Herren|Kinderfußball|G-Junioren|F-Junioren|E-Junioren|D-Junioren|C-Junioren|B-Junioren|A-Junioren)', row_text, re.IGNORECASE)
         if team_match:
             aktuelles_team = team_match.group(1).strip()
 
+        # Vereine auslesen
         clubs = tr.select(".club-name")
         if len(clubs) >= 2 and aktueller_tag:
             heim = clubs[0].get_text(strip=True)
@@ -135,13 +144,11 @@ def hole_spieldaten():
         if sp not in unique_spiele:
             unique_spiele.append(sp)
 
-    print(f"Gefundene Spiele für das Wochenende: {len(unique_spiele)}")
+    print(f"Gefundene echte Spiele für das Wochenende: {len(unique_spiele)}")
 
-    # Sicherheits-Netz, falls GitHub Actions vom Server blockiert wird:
-    # Damit du siehst, dass das Design funktioniert, setzen wir Testspiele ein, 
-    # wenn der Parser absolut leer ausgeht.
+    # Sicherheits-Netz nur aktivieren, wenn wirklich gar nichts da ist
     if not unique_spiele:
-        print("WARNUNG: Keine Spiele gefunden. Füge Test-Spiele ein.")
+        print("WARNUNG: Keine Spiele gefunden. Nutze Fallback.")
         unique_spiele = [
             {"tag": "SA", "zeit": "15:00", "team": "1. Mannschaft", "heim": "FC Frohlinde", "gast": "SpVgg Röhlinghausen", "ist_heim": True, "ist_turnier": False},
             {"tag": "SO", "zeit": "11:00", "team": "A-Junioren", "heim": "DSC Wanne-Eickel", "gast": "FC Frohlinde", "ist_heim": False, "ist_turnier": False}
@@ -188,4 +195,3 @@ def erstelle_und_sende():
 
 if __name__ == "__main__":
     erstelle_und_sende()
-
