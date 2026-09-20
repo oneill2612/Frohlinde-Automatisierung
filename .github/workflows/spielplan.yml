@@ -1,0 +1,31 @@
+name: Wöchentlicher Spielplan FC Frohlinde
+
+on:
+  schedule:
+    # Jeden Donnerstag um 18:00 Uhr MESZ (16:00 UTC)
+    - cron: '0 16 * * 4'
+  workflow_dispatch: # Ermöglicht den manuellen Test per Klick
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Pakete installieren
+        run: |
+          pip install requests beautifulsoup4 jinja2 playwright
+          playwright install chromium
+          playwright install-deps
+
+      - name: Spielplan generieren und an Telegram senden
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python main.py
