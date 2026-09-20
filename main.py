@@ -26,7 +26,7 @@ def hole_spieldaten():
         except: pass
 
         try:
-            page.wait_for_selector(".club-name", timeout=10000)
+            page.wait_for_selector(".club-name, .column-club", timeout=10000)
         except: pass
 
         for _ in range(15):
@@ -47,7 +47,10 @@ def hole_spieldaten():
     sa_str = "26.09.2026"
     so_str = "27.09.2026"
 
-    aktuelles_datum_str = ""
+    sa_such_datum = "26.09."
+    so_such_datum = "27.09."
+
+    aktuelles_datum_tag = None
     aktuelle_zeit = "--:--"
     aktueller_wettbewerb = "Senioren"
 
@@ -57,58 +60,47 @@ def hole_spieldaten():
 
         if not row_text: continue
 
-        # 1. ALLES auslesen, was in der Zeile steht (egal ob Datum oder Team)
-        date_match = re.search(r'(Mo|Di|Mi|Do|Fr|Sa|So),\s*(\d{2}\.\d{2}\.)', row_text)
-        if date_match:
-            aktuelles_datum_str = date_match.group(2)
+        # 1. EXTREM SIMPLER DATUMS-CHECK
+        # Sobald "26.09." irgendwo im Text der Zeile auftaucht, speichern wir "SA".
+        if sa_such_datum in row_text:
+            aktuelles_datum_tag = "SA"
+        elif so_such_datum in row_text:
+            aktuelles_datum_tag = "SO"
 
+        # Zeit auslesen
         time_match = re.search(r'\b(\d{1,2}:\d{2})\b', row_text)
         if time_match:
             aktuelle_zeit = time_match.group(1)
 
+        # Team/Altersklasse auslesen
         team_match = re.search(r'([A-G]\d?-Junioren|\d+\.\s*Mannschaft|Herren|Frauen|Alte Herren)', row_text, re.IGNORECASE)
         if team_match:
             aktueller_wettbewerb = team_match.group(1).strip()
 
-        # 2. Prüfen, ob Vereine in der Zeile stehen
+        # 2. VEREINE AUSLESEN
         clubs = tr.select(".club-name, .column-club")
-        heim, gast = "", ""
-
+        
+        # Wir werten die Zeile nur als Spiel, wenn wirklich zwei Vereine drinstehen
         if len(clubs) >= 2:
             heim = bereinige_string(clubs[0].get_text(strip=True))
             gast = bereinige_string(clubs[-1].get_text(strip=True))
-        elif ":" in row_text or "-" in row_text:
-            trenner = ":" if ":" in row_text else "-"
-            parts = row_text.split(trenner)
-            if len(parts) >= 2:
-                heim_parts = parts[0].strip().split()
-                heim = " ".join(heim_parts[-3:]) if len(heim_parts) >= 3 else parts[0].strip()
-                gast_parts = parts[1].strip().split()
-                gast = " ".join(gast_parts[:3]) if len(gast_parts) >= 3 else parts[1].strip()
 
-        # 3. Spiel nur speichern, wenn Frohlinde dabei ist UND wir das Datum bereits kennen
-        if ("Frohlinde" in heim or "Frohlinde" in gast) and aktuelles_datum_str:
-            if "26.09." in aktuelles_datum_str:
-                tag = "SA"
-            elif "27.09." in aktuelles_datum_str:
-                tag = "SO"
-            else:
-                continue  # Anderes Wochenende, überspringen!
+            # 3. SPIEL SPEICHERN (Nur wenn Frohlinde dabei ist und wir wissen, welcher Tag ist)
+            if ("Frohlinde" in heim or "Frohlinde" in gast) and aktuelles_datum_tag:
+                ist_heim = "Frohlinde" in heim
+                ist_turnier = "turnier" in aktueller_wettbewerb.lower()
 
-            ist_heim = "Frohlinde" in heim
-            ist_turnier = "turnier" in aktueller_wettbewerb.lower() or "TU |" in row_text
+                spiele.append({
+                    "tag": aktuelles_datum_tag,
+                    "zeit": aktuelle_zeit,
+                    "team": aktueller_wettbewerb,
+                    "heim": heim,
+                    "gast": gast,
+                    "ist_heim": ist_heim,
+                    "ist_turnier": ist_turnier
+                })
 
-            spiele.append({
-                "tag": tag,
-                "zeit": aktuelle_zeit,
-                "team": aktueller_wettbewerb,
-                "heim": heim,
-                "gast": gast,
-                "ist_heim": ist_heim,
-                "ist_turnier": ist_turnier
-            })
-
-    # Doppelte Einträge filtern
+    # Doppelte Spiele entfernen
     unique_spiele = []
     for sp in spiele:
         if sp not in unique_spiele:
@@ -119,8 +111,8 @@ def hole_spieldaten():
             "tag": "SA",
             "zeit": "00:00",
             "team": "Fehler-Diagnose",
-            "heim": "Keine Daten gefunden",
-            "gast": "Datum wurde im Code nicht erkannt",
+            "heim": "Kein Spiel gefunden",
+            "gast": "Datum 26.09. / 27.09. wurde nicht erkannt",
             "ist_heim": True,
             "ist_turnier": False
         })
