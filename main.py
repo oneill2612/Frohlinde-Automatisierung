@@ -9,11 +9,12 @@ from playwright.sync_api import sync_playwright
 
 URL = "https://www.fussball.de/verein/fc-frohlinde-westfalen/-/id/00ES8GN8OC00006VVV0AG08LVUPGND5I#!/"
 
-def bereinige_teamname(text):
+def bereinige_team(text):
     if not text:
         return ""
-    # Entfernt Liga-Zusätze, Kreisliga, AME etc.
-    text = re.sub(r'\b(AME|ME|FS|TU|Kreisliga\s*[A-Z0-9]?|Bezirksliga\s*[A-Z0-9]?|Kreisklasse\s*[A-Z0-9]?|Vereinsturnier|Kreisfreundschaftsspiele)\b', '', text, flags=re.IGNORECASE)
+    # Bereinigt Liga-Zusätze und unsichtbare Zeichen von fussball.de
+    text = re.sub(r'[\u200b\u200e\u200f\xa0]', ' ', text)
+    text = re.sub(r'\b(AME|ME|FS|TU|Kinderfußball|Kreisliga\s*[A-Z0-9]?|Bezirksliga\s*[A-Z0-9]?|Kreisklasse\s*[A-Z0-9]?|Kreisfreundschaftsspiele|Vereinsturnier)\b', '', text, flags=re.IGNORECASE)
     text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
@@ -23,21 +24,21 @@ def hole_spieldaten():
         page = browser.new_page(viewport={"width": 1400, "height": 1000})
         page.goto(URL, timeout=60000, wait_until="networkidle")
 
-        # 1. Cookie-Banner wegklicken
+        # 1. Cookie-Banner schließen
         try:
-            cookie_btn = page.locator("button:has-text('Zustimmen'), button:has-text('Akzeptieren'), #cmpwelcomebtnyes a")
-            if cookie_btn.count() > 0:
-                cookie_btn.first.click(timeout=3000)
+            btn = page.locator("button:has-text('Zustimmen'), button:has-text('Akzeptieren'), #cmpwelcomebtnyes a")
+            if btn.count() > 0:
+                btn.first.click(timeout=3000)
         except Exception:
             pass
 
-        # 2. Mehrfach auf "Mehr laden" klicken
-        for _ in range(8):
+        # 2. "Mehr laden" klicken (bis zu 12 Mal), damit auch Vortage/Samstag da sind
+        for _ in range(12):
             try:
                 load_more = page.locator(".load-more-button, a:has-text('Mehr laden')")
                 if load_more.count() > 0 and load_more.first.is_visible():
                     load_more.first.click()
-                    time.sleep(1.8)
+                    page.wait_for_timeout(1500)
                 else:
                     break
             except Exception:
@@ -49,76 +50,71 @@ def hole_spieldaten():
     soup = BeautifulSoup(html, "html.parser")
     spiele = []
 
-    # Relevantes Wochenende bestimmen (nächster Samstag & Sonntag)
+    # Relevantes Wochenende ermitteln (aktuelles/nächstes Wochenende)
     heute = datetime.now()
-    tage_sa = (5 - heute.weekday()) % 7
-    # Wenn heute Sa oder So ist, das aktuelle Wochenende nehmen
-    if heute.weekday() in [5, 6]:
+    if heute.weekday() in [5, 6]: # Sa oder So
         samstag = heute - timedelta(days=(heute.weekday() - 5))
     else:
-        samstag = heute + timedelta(days=tage_sa)
+        tage_bis_sa = (5 - heute.weekday()) % 7
+        samstag = heute + timedelta(days=tage_bis_sa)
     sonntag = samstag + timedelta(days=1)
 
-    sa_prefix = samstag.strftime("%d.%m")
-    so_prefix = sonntag.strftime("%d.%m")
     sa_str = samstag.strftime("%d.%m.%Y")
     so_str = sonntag.strftime("%d.%m.%Y")
-
-    # Fussball.de Spiel-Zeilen durchsuchen
-    rows = soup.select("tr.odd, tr.even, tr.match-row, tr")
+    sa_short = samstag.strftime("%d.%m")
+    so_short = sonntag.strftime("%d.%m")
 
     aktueller_tag = None
+    aktuelle_zeit = "--:--"
+    aktuelles_team = "Team"
+    ist_turnier = False
 
-    for r in rows:
-        row_text = r.get_text(" ", strip=True)
+    # Alle Zeilen der Tabelle durchgehen
+    for tr in soup.select("table tr"):
+        text = tr.get_text(" ", strip=True)
+        text = re.sub(r'[\u200b\u200e\u200f\xa0]', ' ', text)
 
-        # Datumszeile (z.B. "Sonntag, 20.09.2026 - 11:00 Uhr | A-Junioren")
-        if sa_prefix in row_text or "Samstag" in row_text:
-            aktueller_tag = "SA"
-        elif so_prefix in row_text or "Sonntag" in row_text:
-            aktueller_tag = "SO"
-
-        # Clubs aus den separaten Spalten holen
-        clubs = r.select(".club-name, .column-club")
-        if len(clubs) >= 2:
-            heim = clubs[0].get_text(" ", strip=True)
-            gast = clubs[1].get_text(" ", strip=True)
-        elif " : " in row_text or " - " in row_text:
-            # Fallback über Text-Split
-            parts = re.split(r'\s+[:\-]\s+', row_text)
-            if len(parts) >= 2:
-                heim = parts[0].split()[-3:]
-                heim = " ".join(heim)
-                gast = parts[1].split()[:3]
-                gast = " ".join(gast)
+        # Typ 1: Datums- und Team-Überschrift (z.B. "Sonntag, 20.09.2026 - 11:00 Uhr | A-Junioren | Kreisliga A")
+        if ("Samstag" in text or "Sonntag" in text) and "Uhr" in text:
+            if sa_short in text or "Samstag" in text:
+                aktueller_tag = "SA"
+            elif so_short in text or "Sonntag" in text:
+                aktueller_tag = "SO"
             else:
-                continue
-        else:
+                aktueller_tag = None
+
+            # Zeit filtern (z.B. 11:00)
+            t_match = re.search(r'(\d{1,2}:\d{2})\s*Uhr', text)
+            if t_match:
+                aktuelle_zeit = t_match.group(1)
+
+            # Team-Klasse filtern (z.B. A-Junioren, 1. Mannschaft etc.)
+            m_team = re.search(r'\|\s*([A-G]\d?-Junioren|\d+\.\s*Mannschaft|Herren|Frauen)', text, re.IGNORECASE)
+            if m_team:
+                aktuelles_team = m_team.group(1).strip()
+            else:
+                aktuelles_team = "FC Frohlinde"
+
+            ist_turnier = "turnier" in text.lower() or "tu |" in text.lower()
             continue
 
-        if not ("Frohlinde" in heim or "Frohlinde" in gast):
-            continue
+        # Typ 2: Spielpaarung (enthält die beiden Vereine)
+        clubs = tr.select(".club-name, td.column-club")
+        if len(clubs) >= 2 and aktueller_tag:
+            heim = clubs[0].get_text(strip=True)
+            gast = clubs[1].get_text(strip=True)
 
-        # Uhrzeit suchen (z.B. 11:00 oder 15:15)
-        time_match = re.search(r'\b(\d{1,2}:\d{2})\b', row_text)
-        zeit = time_match.group(1) if time_match else "--:--"
-
-        # Teambezeichnung (z.B. A-Junioren, B-Junioren, Herren, 2. Mannschaft)
-        team_match = re.search(r'([A-G]\d?-Junioren|\d+\.\s*Mannschaft|Herren|Frauen)', row_text, re.IGNORECASE)
-        team_name = team_match.group(1) if team_match else "Senioren"
-
-        ist_heim = "Frohlinde" in heim
-        ist_turnier = "turnier" in row_text.lower() or "TU |" in row_text
-
-        spiele.append({
-            "tag": aktueller_tag if aktueller_tag else ("SA" if "Samstag" in row_text else "SO"),
-            "zeit": zeit,
-            "team": bereinige_teamname(team_name),
-            "heim": bereinige_teamname(heim),
-            "gast": bereinige_teamname(gast),
-            "ist_heim": ist_heim,
-            "ist_turnier": ist_turnier
-        })
+            if "Frohlinde" in heim or "Frohlinde" in gast:
+                ist_heim = "Frohlinde" in heim
+                spiele.append({
+                    "tag": aktueller_tag,
+                    "zeit": aktuelle_zeit,
+                    "team": bereinige_team(aktuelles_team),
+                    "heim": bereinige_team(heim),
+                    "gast": bereinige_team(gast),
+                    "ist_heim": ist_heim,
+                    "ist_turnier": ist_turnier
+                })
 
     return sa_str, so_str, spiele
 
