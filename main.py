@@ -25,7 +25,9 @@ def hole_spieldaten():
             if btn.count() > 0: btn.first.click(timeout=3000)
         except: pass
 
-        # Öfter klicken (15x), damit der 26.09. wirklich zu 100% in die Liste geladen wird!
+        # Warten, bis die Tabelle wirklich da ist
+        page.wait_for_selector("table", timeout=10000)
+
         for _ in range(15):
             try:
                 btn = page.locator(".load-more-button, a:has-text('Mehr laden')")
@@ -44,11 +46,11 @@ def hole_spieldaten():
     sa_str = "26.09.2026"
     so_str = "27.09.2026"
     
-    # Wir suchen nach der verkürzten Schreibweise, falls das Jahr fehlt!
     sa_such_datum = "26.09."
     so_such_datum = "27.09."
     
-    aktuelles_datum = None
+    # Zustand-Speicher für das Durchlaufen der Tabelle
+    aktuelles_datum_str = ""
     aktuelle_zeit = "--:--"
     aktueller_wettbewerb = "Senioren"
     
@@ -56,37 +58,39 @@ def hole_spieldaten():
         row_text = tr.get_text(" ", strip=True)
         row_text = bereinige_string(row_text)
         
-        # 1. Ist das eine Datum-Überschrift? (Enthält "Samstag"/"Sonntag" und "Uhr")
-        if ("Samstag" in row_text or "Sonntag" in row_text) and "Uhr" in row_text:
-            if sa_such_datum in row_text:
-                aktuelles_datum = "SA"
-            elif so_such_datum in row_text:
-                aktuelles_datum = "SO"
+        if not row_text: continue
+
+        clubs = tr.select(".club-name, .column-club")
+        is_match_row = len(clubs) >= 2 or (" : " in row_text)
+
+        if not is_match_row:
+            # 1. Info-Zeile parsen (z.B. "Sa, 26.09.26 | 10:00 E-Junioren ...")
+            date_match = re.search(r'(Mo|Di|Mi|Do|Fr|Sa|So),\s*(\d{2}\.\d{2}\.)', row_text)
+            if date_match:
+                aktuelles_datum_str = date_match.group(2)
+                
+            time_match = re.search(r'\b(\d{1,2}:\d{2})\b', row_text)
+            if time_match:
+                aktuelle_zeit = time_match.group(1)
+                
+            team_match = re.search(r'([A-G]\d?-Junioren|\d+\.\s*Mannschaft|Herren|Frauen)', row_text, re.IGNORECASE)
+            if team_match:
+                aktueller_wettbewerb = team_match.group(1).strip()
+        else:
+            # 2. Spiel-Zeile parsen (z.B. "SpVgg. Röhlinghausen : FC Frohlinde")
+            if sa_such_datum in aktuelles_datum_str:
+                tag = "SA"
+            elif so_such_datum in aktuelles_datum_str:
+                tag = "SO"
             else:
-                aktuelles_datum = None
-            
-            t_match = re.search(r'(\d{1,2}:\d{2})\s*Uhr', row_text)
-            if t_match: aktuelle_zeit = t_match.group(1)
-            
-            if "|" in row_text:
-                parts = row_text.split("|")
-                if len(parts) >= 2:
-                    raw_team = parts[1]
-                    clean_team = re.sub(r'(AME|ME|FS|TU|Kreisliga.*?|Bezirksliga.*?)', '', raw_team, flags=re.IGNORECASE)
-                    aktueller_wettbewerb = bereinige_string(clean_team)
-            continue
-            
-        # 2. Spielpaarung auslesen, wenn wir am richtigen Tag sind
-        if aktuelles_datum:
-            clubs = tr.select(".club-name, .column-club")
+                continue # Falsches Datum, überspringen
+
             heim, gast = "", ""
-            
             if len(clubs) >= 2:
                 heim = bereinige_string(clubs[0].get_text(strip=True))
                 gast = bereinige_string(clubs[-1].get_text(strip=True))
-            elif ":" in row_text or "-" in row_text:
-                trenner = ":" if ":" in row_text else "-"
-                parts = row_text.split(trenner)
+            else:
+                parts = row_text.split(":")
                 if len(parts) >= 2:
                     heim_parts = parts[0].strip().split()
                     heim = " ".join(heim_parts[-3:]) if len(heim_parts) >= 3 else parts[0].strip()
@@ -95,10 +99,10 @@ def hole_spieldaten():
 
             if "Frohlinde" in heim or "Frohlinde" in gast:
                 ist_heim = "Frohlinde" in heim
-                ist_turnier = "turnier" in aktueller_wettbewerb.lower() or "TU |" in row_text
+                ist_turnier = "turnier" in aktueller_wettbewerb.lower()
                 
                 spiele.append({
-                    "tag": aktuelles_datum,
+                    "tag": tag,
                     "zeit": aktuelle_zeit,
                     "team": aktueller_wettbewerb,
                     "heim": heim,
@@ -106,9 +110,7 @@ def hole_spieldaten():
                     "ist_heim": ist_heim,
                     "ist_turnier": ist_turnier
                 })
-                
-    # Sicherheits-Netz: Wenn absolut NICHTS gefunden wurde, erzeugen wir ein Debug-Spiel, 
-    # damit das Bild nicht einfach nur leer ist!
+
     if not spiele:
         spiele.append({
             "tag": "SA",
