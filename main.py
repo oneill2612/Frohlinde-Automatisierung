@@ -9,29 +9,40 @@ from playwright.sync_api import sync_playwright
 
 URL = "https://www.fussball.de/verein/fc-frohlinde-westfalen/-/id/00ES8GN8OC00006VVV0AG08LVUPGND5I#!/"
 
-def bereinige_text(text):
-    text = re.sub(r'(AME|ME|Kinderfußball|Kreisliga\s*[A-Z]?|Bezirksliga\s*[A-Z]?)', '', text)
-    return ' '.join(text.split()).strip()
+def bereinige_team(team_str):
+    # Entfernt Liga-Zusätze und interne Kürzel wie AME, ME, Kinderfußball
+    text = re.sub(r'(AME|ME|Kinderfußball|Kreisliga\s*[A-Z0-9]?|Bezirksliga\s*[A-Z0-9]?|Kreisklasse\s*[A-Z0-9]?)', '', team_str, flags=re.IGNORECASE)
+    # Normiert gängige Bezeichnungen
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
+
+def bereinige_vereinsname(name):
+    name = re.sub(r'\s+', ' ', name)
+    return name.strip()
 
 def hole_spieldaten():
     spiele = []
+    
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        page.goto(URL, timeout=60000)
+        # Desktop-Viewport verhindert mobile Redirection
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        page.goto(URL, timeout=60000, wait_until="networkidle")
 
-        # Cookie-Banner akzeptieren
+        # 1. Cookie-Banner schließen
         try:
-            page.locator("button:has-text('Zustimmen')").click(timeout=5000)
+            btn = page.locator("button:has-text('Zustimmen'), button:has-text('Akzeptieren'), #cmpwelcomebtnyes a")
+            if btn.count() > 0:
+                btn.first.click(timeout=3000)
         except Exception:
             pass
 
-        # "Mehr laden" anklicken, bis alles sichtbar ist
+        # 2. Mehrfach "Mehr laden" klicken
         for _ in range(6):
             try:
                 load_more = page.locator(".load-more-button, a:has-text('Mehr laden')")
-                if load_more.is_visible():
-                    load_more.click()
+                if load_more.count() > 0 and load_more.first.is_visible():
+                    load_more.first.click()
                     time.sleep(2)
                 else:
                     break
@@ -42,36 +53,70 @@ def hole_spieldaten():
         browser.close()
 
     soup = BeautifulSoup(html, "html.parser")
-    rows = soup.select(".match-row, tr.row-headline, tr")
 
+    # Nächstes Wochenende ermitteln (kommender Samstag & Sonntag)
     heute = datetime.now()
-    samstag = heute + timedelta((5 - heute.weekday()) % 7)
+    tage_bis_sa = (5 - heute.weekday()) % 7
+    if tage_bis_sa == 0 and heute.weekday() != 5:
+        tage_bis_sa = 7
+    samstag = heute + timedelta(days=tage_bis_sa)
     sonntag = samstag + timedelta(days=1)
+    
     sa_str = samstag.strftime("%d.%m.%Y")
     so_str = sonntag.strftime("%d.%m.%Y")
 
+    # Fussball.de-Zeilen auslesen
+    rows = soup.select(".match-row, tr.row-headline, tr.odd, tr.even, tr")
+
+    aktueller_tag = None
+
     for r in rows:
-        text = r.get_text(" ", strip=True)
-        if "FC Frohlinde" in text or "Frohlinde" in text:
-            time_match = re.search(r'(\d{2}:\d{2})', text)
+        row_text = r.get_text(" ", strip=True)
+        
+        # Datumszeile erkennen
+        if sa_str in row_text or (f"{samstag.day}." in row_text and "Samstag" in row_text):
+            aktueller_tag = "SA"
+        elif so_str in row_text or (f"{sonntag.day}." in row_text and "Sonntag" in row_text):
+            aktueller_tag = "SO"
+
+        # Nur weiter parsen, wenn wir uns im aktuellen Wochenende befinden und Frohlinde involviert ist
+        if "Frohlinde" in row_text:
+            # Uhrzeit
+            time_match = re.search(r'(\d{1,2}:\d{2})', row_text)
             zeit = time_match.group(1) if time_match else "--:--"
 
-            is_turnier = "turnier" in text.lower()
-            ist_heim = "FC Frohlinde" in text.split(" - ")[0] if " - " in text else True
+            # Teams extrahieren (Fussball.de club-names oder Regex-Aufteilung)
+            team_nodes = r.select(".club-name, .club-name-home, .club-name-guest, td.column-club")
+            if len(team_nodes) >= 2:
+                heim = bereinige_vereinsname(team_nodes[0].get_text(strip=True))
+                gast = bereinige_vereinsname(team_nodes[1].get_text(strip=True))
+            elif " - " in row_text or " : " in row_text:
+                parts = re.split(r'\s+[-:]\s+', row_text)
+                heim = parts[0].split()[-2:] if len(parts[0].split()) >= 2 else parts[0]
+                heim = " ".join(heim) if isinstance(heim, list) else heim
+                gast = parts[1].split()[:3]
+                gast = " ".join(gast)
+            else:
+                heim = "FC Frohlinde"
+                gast = "Gegner"
 
-            team = "Team"
-            team_match = re.search(r'([A-G]\d?-Junioren|\d+\.\s*Mannschaft|Herren|Frauen)', text)
-            if team_match:
-                team = team_match.group(1)
+            ist_heim = "Frohlinde" in heim
+            ist_turnier = "turnier" in row_text.lower() or "hallenturnier" in row_text.lower()
+
+            # Altersklasse / Teamkategorie
+            team_match = re.search(r'([A-G]\d?-Junioren|\d+\.\s*Mannschaft|Herren|Frauen|Alte Herren)', row_text)
+            team_label = team_match.group(1) if team_match else "Team"
+
+            tag_zugeordnet = aktueller_tag if aktueller_tag else ("SA" if "Samstag" in row_text else "SO")
 
             spiele.append({
-                "tag": "SA" if (sa_str in text or "Samstag" in text) else "SO",
+                "tag": tag_zugeordnet,
                 "zeit": zeit,
-                "team": bereinige_text(team),
-                "heim": "FC Frohlinde" if ist_heim else "Gegner",
-                "gast": "Gegner" if ist_heim else "FC Frohlinde",
+                "team": bereinige_team(team_label),
+                "heim": heim,
+                "gast": gast,
                 "ist_heim": ist_heim,
-                "ist_turnier": is_turnier
+                "ist_turnier": ist_turnier
             })
 
     return sa_str, so_str, spiele
@@ -95,7 +140,7 @@ def erstelle_und_sende():
     with open("output.html", "w", encoding="utf-8") as f:
         f.write(rendered_html)
 
-    # Screenshot in Social-Media-Auflösung 1080x1920 erstellen
+    # Screenshot erstellen
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1080, "height": 1920})
@@ -103,7 +148,7 @@ def erstelle_und_sende():
         page.screenshot(path="spielplan.png")
         browser.close()
 
-    # Per Telegram an dein Handy senden
+    # Per Telegram versenden
     token = os.environ.get("TELEGRAM_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     if token and chat_id:
@@ -111,7 +156,7 @@ def erstelle_und_sende():
         with open("spielplan.png", "rb") as photo:
             requests.post(
                 url,
-                data={"chat_id": chat_id, "caption": f"⚽ Wochenend-Spielplan FC Frohlinde ({sa_str} - {so_str})"},
+                data={"chat_id": chat_id, "caption": f"⚽ Spielplan FC Frohlinde ({sa_str} - {so_str})"},
                 files={"photo": photo}
             )
 
