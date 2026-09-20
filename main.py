@@ -1,76 +1,26 @@
 import os
 import re
-import time
 import requests
 from datetime import datetime, timedelta
-from bs4 import BeautifulSoup
 from jinja2 import Template
 from playwright.sync_api import sync_playwright
 
 URL = "https://www.fussball.de/verein/fc-frohlinde-westfalen/-/id/00ES8GN8OC00006VVV0AG08LVUPGND5I#!/"
 
 def bereinige_team(text):
-    if not text:
-        return ""
-    # Bereinigt unsichtbare Leerzeichen und typische Fussball.de-Zusätze
+    if not text: return ""
     text = re.sub(r'[\u200b\u200e\u200f\xa0]', ' ', text)
     text = re.sub(r'\b(AME|ME|FS|TU|Kinderfußball|Kreisliga\s*[A-Z0-9]?|Bezirksliga\s*[A-Z0-9]?|Kreisklasse\s*[A-Z0-9]?|Kreisfreundschaftsspiele|Vereinsturnier)\b', '', text, flags=re.IGNORECASE)
     text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
 def hole_spieldaten():
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page(viewport={"width": 1920, "height": 1080})
-        page.goto(URL, timeout=60000, wait_until="networkidle")
-
-        # 1. Cookie-Banner per JavaScript schließen
-        try:
-            page.evaluate("""() => {
-                const btns = Array.from(document.querySelectorAll('button, a'));
-                const accept = btns.find(b => b.innerText && (b.innerText.includes('Zustimmen') || b.innerText.includes('Akzeptieren')));
-                if (accept) accept.click();
-            }""")
-            page.wait_for_timeout(1000)
-        except Exception:
-            pass
-
-        # 2. "Mehr laden" mehrfach per JavaScript auslösen
-        for _ in range(12):
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            page.wait_for_timeout(1200)
-
-            geklickt = page.evaluate("""() => {
-                const elements = Array.from(document.querySelectorAll('a, button, div, span'));
-                const btn = elements.reverse().find(el => {
-                    const t = (el.innerText || el.textContent || '').trim().toLowerCase();
-                    return t === 'mehr laden' || t.startsWith('mehr laden');
-                });
-                if (btn) {
-                    btn.scrollIntoView();
-                    btn.click();
-                    return true;
-                }
-                return false;
-            }""")
-
-            if geklickt:
-                page.wait_for_timeout(2500)
-            else:
-                break
-
-        html = page.content()
-        browser.close()
-
-    soup = BeautifulSoup(html, "html.parser")
     spiele = []
-
-    # Dynamische Berechnung des anstehenden Wochenendes:
+    
+    # Automatische Wochenenden-Berechnung
     heute = datetime.now()
     tage_bis_sa = (5 - heute.weekday()) % 7
-    if tage_bis_sa == 0:
-        tage_bis_sa = 7  # Wenn heute Samstag ist, nimm das nächste Wochenende
-
+    if tage_bis_sa == 0: tage_bis_sa = 7
     samstag = heute + timedelta(days=tage_bis_sa)
     sonntag = samstag + timedelta(days=1)
 
@@ -79,53 +29,94 @@ def hole_spieldaten():
     sa_tag = samstag.strftime("%d.%m.")
     so_tag = sonntag.strftime("%d.%m.")
 
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1920, "height": 1080})
+        page.goto(URL, timeout=60000, wait_until="networkidle")
+
+        # Cookie wegklicken
+        try:
+            page.evaluate("""() => {
+                const btns = Array.from(document.querySelectorAll('button, a'));
+                const accept = btns.find(b => b.innerText && (b.innerText.includes('Zustimmen') || b.innerText.includes('Akzeptieren')));
+                if (accept) accept.click();
+            }""")
+            page.wait_for_timeout(1000)
+        except: pass
+
+        # Mehr laden öfters klicken
+        for _ in range(10):
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            page.wait_for_timeout(1000)
+            clicked = page.evaluate("""() => {
+                const elements = Array.from(document.querySelectorAll('a, button, div'));
+                const btn = elements.find(el => {
+                    const t = (el.innerText || '').trim().toLowerCase();
+                    return t === 'mehr laden' || t.startsWith('mehr laden');
+                });
+                if (btn) { btn.click(); return true; }
+                return false;
+            }""")
+            if clicked:
+                page.wait_for_timeout(2000)
+            else:
+                break
+
+        # DIREKT ÜBER PLAYWRIGHT DIE SEITENELEMENTE AUSLESEN (Umgeht BeautifulSoup-Blockaden)
+        rohe_zeilen = page.evaluate("""() => {
+            const rows = Array.from(document.querySelectorAll('tr'));
+            return rows.map(r => r.innerText);
+        }""")
+
+        browser.close()
+
     aktueller_tag = None
     aktuelle_zeit = "--:--"
     aktuelles_team = "Senioren"
 
-    for tr in soup.find_all("tr"):
-        row_text = tr.get_text(" ", strip=True)
-        row_text = re.sub(r'[\u200b\u200e\u200f\xa0]', ' ', row_text)
-        if not row_text:
-            continue
+    for text in rohe_zeilen:
+        text = text.replace('\n', ' | ')
+        if not text.strip(): continue
 
-        # Tag-Erkennung (anhand von z.B. "26.09." oder "27.09.")
-        if sa_tag in row_text:
+        if sa_tag in text:
             aktueller_tag = "SA"
-        elif so_tag in row_text:
+        elif so_tag in text:
             aktueller_tag = "SO"
-        elif re.search(r'\b\d{2}\.\d{2}\.\b', row_text) and (sa_tag not in row_text and so_tag not in row_text):
+        elif re.search(r'\b\d{2}\.\d{2}\.\b', text) and (sa_tag not in text and so_tag not in text):
             aktueller_tag = None
 
-        # Uhrzeit filtern
-        t_match = re.search(r'\b(\d{1,2}:\d{2})\b', row_text)
+        t_match = re.search(r'\b(\d{1,2}:\d{2})\b', text)
         if t_match:
             aktuelle_zeit = t_match.group(1)
 
-        # Altersklasse / Team filtern
-        team_match = re.search(r'([A-G]\d?-Junioren|\d+\.\s*Mannschaft|Herren|Frauen|Alte Herren)', row_text, re.IGNORECASE)
+        team_match = re.search(r'([A-G]\d?-Junioren|\d+\.\s*Mannschaft|Herren|Frauen|Alte Herren)', text, re.IGNORECASE)
         if team_match:
             aktuelles_team = team_match.group(1).strip()
 
-        # Vereine auslesen
-        clubs = tr.select(".club-name")
-        if len(clubs) >= 2 and aktueller_tag:
-            heim = clubs[0].get_text(strip=True)
-            gast = clubs[1].get_text(strip=True)
+        # Prüfen ob Frohlinde vorkommt
+        if "Frohlinde" in text and aktueller_tag:
+            teile = text.split(":")
+            if len(teile) >= 2:
+                # Extrahiere Heim und Gast über die Textstruktur
+                heim_text = teile[0].strip().split()
+                heim = " ".join(heim_text[-3:]) if len(heim_text) >= 3 else teile[0].strip()
+                
+                gast_text = teile[1].strip().split()
+                gast = " ".join(gast_text[:3]) if len(gast_text) >= 3 else teile[1].strip()
 
-            if "Frohlinde" in heim or "Frohlinde" in gast:
-                ist_heim = "Frohlinde" in heim
-                ist_turnier = "turnier" in row_text.lower()
+                if "Frohlinde" in heim or "Frohlinde" in gast:
+                    ist_heim = "Frohlinde" in heim
+                    ist_turnier = "turnier" in text.lower()
 
-                spiele.append({
-                    "tag": aktueller_tag,
-                    "zeit": aktuelle_zeit,
-                    "team": bereinige_team(aktuelles_team),
-                    "heim": heim,
-                    "gast": gast,
-                    "ist_heim": ist_heim,
-                    "ist_turnier": ist_turnier
-                })
+                    spiele.append({
+                        "tag": aktueller_tag,
+                        "zeit": aktuelle_zeit,
+                        "team": bereinige_team(aktuelles_team),
+                        "heim": heim,
+                        "gast": gast,
+                        "ist_heim": ist_heim,
+                        "ist_turnier": ist_turnier
+                    })
 
     # Duplikate filtern
     unique_spiele = []
@@ -154,7 +145,6 @@ def erstelle_und_sende():
     with open("output.html", "w", encoding="utf-8") as f:
         f.write(rendered_html)
 
-    # Screenshot in Story-Auflösung 1080x1920
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1080, "height": 1920})
@@ -162,7 +152,6 @@ def erstelle_und_sende():
         page.screenshot(path="spielplan.png")
         browser.close()
 
-    # Per Telegram versenden
     token = os.environ.get("TELEGRAM_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     if token and chat_id:
