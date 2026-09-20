@@ -1,268 +1,319 @@
 <!DOCTYPE html>
 <html lang="de">
+
 <head>
+
 <meta charset="UTF-8">
-<title>Wochenend-Spielplan FC Frohlinde</title>
+
+<title>FC Frohlinde Spielplan</title>
+
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800;900&display=swap');
 
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+@font-face {
+    font-family: "Frohlinde";
+    src: url("assets/Karnchang.ttf");
+}
 
-  body {
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+
+    margin: 0;
+    padding: 0;
+
     width: 1080px;
-    height: 1920px;
-    font-family: 'Montserrat', sans-serif;
-    color: #ffffff;
-    background: radial-gradient(circle at 50% 35%, #0d4b9b 0%, #052654 60%, #021226 100%);
-    position: relative;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    padding: 260px 40px 40px 40px;
-  }
+    min-height: 1920px;
 
-  .bg-watermark {
-    position: absolute;
-    right: -40px;
-    bottom: 30px;
-    width: 480px;
-    height: 480px;
-    opacity: 0.10;
-    pointer-events: none;
-  }
+    font-family:
+        "Frohlinde",
+        Arial,
+        sans-serif;
 
-  .grid-container {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 30px;
-    z-index: 2;
-  }
+    background:
+        #07559b;
 
-  .column {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
+}
 
-  .day-header {
-    font-size: 30px;
-    font-weight: 900;
-    font-style: italic;
-    color: #ffffff;
-    border-bottom: 2px solid rgba(255, 255, 255, 0.4);
-    padding-bottom: 6px;
-  }
+body {
 
-  .section-banner {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    background: #ffffff;
-    color: #0b3469;
-    padding: 6px 16px;
-    font-size: 22px;
-    font-weight: 900;
-    font-style: italic;
-    border-radius: 4px;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-    margin-top: 6px;
-  }
+    background-image:
+        linear-gradient(
+            rgba(0, 50, 100, 0.55),
+            rgba(0, 50, 100, 0.55)
+        ),
+        url("assets/background.png");
 
-  .match-list {
-    display: flex;
-    flex-direction: column;
-    gap: 7px;
-  }
+    background-size: cover;
+    background-position: center;
 
-  .match-card {
-    display: flex;
-    align-items: center;
-    background: rgba(4, 25, 59, 0.65);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 6px;
-    padding: 6px 10px;
-  }
+    color: white;
 
-  .match-time {
-    font-size: 15px;
-    font-weight: 800;
-    width: 65px;
-    border-right: 1px solid rgba(255, 255, 255, 0.2);
-    margin-right: 10px;
-    line-height: 1.1;
+}
+
+.container {
+
+    width: 100%;
+    min-height: 1920px;
+
+    padding:
+        65px 55px 70px 55px;
+
+}
+
+.header {
+
     text-align: center;
-  }
-  .match-time span {
-    font-size: 10px;
-    display: block;
-    color: #9cbce6;
-  }
 
-  .match-info {
-    flex: 1;
-    overflow: hidden;
-  }
+    margin-bottom: 55px;
 
-  .match-team {
-    font-size: 12px;
-    font-weight: 800;
-    color: #5da0ff;
-    text-transform: uppercase;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+}
 
-  .match-pairing {
-    font-size: 13px;
-    font-weight: 700;
-    color: #ffffff;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+.logo {
 
-  .tourney-box {
-    background: rgba(14, 46, 92, 0.7);
-    border: 1px dashed rgba(255, 255, 255, 0.35);
-    border-radius: 6px;
-    padding: 8px 10px;
-  }
+    width: 190px;
+    height: 190px;
 
-  .tourney-title {
-    font-size: 13px;
-    font-weight: 800;
-    color: #ffd24d;
-    margin-bottom: 6px;
-    text-transform: uppercase;
-  }
+    object-fit: contain;
 
-  .tourney-row {
-    display: flex;
-    justify-content: space-between;
-    font-size: 12px;
-    font-weight: 600;
-    padding: 3px 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  }
-  .tourney-row:last-child { border-bottom: none; }
+    margin-bottom: 15px;
 
-  .footer {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-    border-top: 1px solid rgba(255, 255, 255, 0.25);
-    padding-top: 16px;
-    z-index: 2;
-  }
+}
 
-  .slogan {
-    font-size: 22px;
+.title {
+
+    font-size: 72px;
+
     font-weight: 900;
-    font-style: italic;
-  }
 
-  .socials {
+    letter-spacing: 2px;
+
+    text-transform: uppercase;
+
+    text-shadow:
+        4px 4px 0 rgba(0,0,0,.35);
+
+}
+
+.subtitle {
+
+    font-family: Arial, sans-serif;
+
+    font-size: 30px;
+
+    margin-top: 8px;
+
+    opacity: .9;
+
+}
+
+.spiel {
+
+    background:
+        rgba(255,255,255,.96);
+
+    color: #101010;
+
+    border-radius: 26px;
+
+    margin-bottom: 28px;
+
+    padding: 28px 30px 30px;
+
+    box-shadow:
+        0 12px 30px
+        rgba(0,0,0,.25);
+
+}
+
+.spiel-header {
+
     display: flex;
+
+    justify-content:
+        space-between;
+
+    align-items:
+        center;
+
+    margin-bottom: 22px;
+
+}
+
+.datum {
+
+    font-size: 30px;
+
+    font-weight: bold;
+
+}
+
+.wettbewerb {
+
+    font-family: Arial, sans-serif;
+
+    font-size: 22px;
+
+    color: #555;
+
+    text-align: right;
+
+}
+
+.teams {
+
+    display: grid;
+
+    grid-template-columns:
+        1fr 110px 1fr;
+
     align-items: center;
-    gap: 16px;
-    font-size: 14px;
-    font-weight: 700;
-    color: #b0ccef;
-  }
+
+    gap: 10px;
+
+}
+
+.team {
+
+    font-family: Arial, sans-serif;
+
+    font-size: 32px;
+
+    font-weight: 800;
+
+    line-height: 1.15;
+
+}
+
+.heim {
+
+    text-align: right;
+
+}
+
+.gast {
+
+    text-align: left;
+
+}
+
+.zeit {
+
+    text-align: center;
+
+    font-family: Arial, sans-serif;
+
+    font-size: 35px;
+
+    font-weight: 900;
+
+    color: #07559b;
+
+}
+
+.footer {
+
+    margin-top: 50px;
+
+    text-align: center;
+
+    font-family: Arial, sans-serif;
+
+    font-size: 24px;
+
+    opacity: .9;
+
+}
+
 </style>
+
 </head>
+
 <body>
 
-<svg class="bg-watermark" viewBox="0 0 100 100">
-  <path fill="#ffffff" d="M50 5 L88 20 C88 55 50 88 50 88 C50 88 12 55 12 20 Z"/>
-</svg>
+<div class="container">
 
-<div class="grid-container">
-  <!-- SAMSTAG -->
-  <div class="column">
-    <div class="day-header">{{ samstag_datum }}</div>
+    <div class="header">
 
-    <div class="section-banner">HEIMSPIELE</div>
-    <div class="match-list">
-      {% for m in samstag_heim %}
-      <div class="match-card">
-        <div class="match-time">{{ m.zeit }}<span>UHR</span></div>
-        <div class="match-info">
-          <div class="match-team">{{ m.team }}</div>
-          <div class="match-pairing">{{ m.heim }} – {{ m.gast }}</div>
+        <img
+            class="logo"
+            src="assets/logo.png"
+        >
+
+        <div class="title">
+            Spielplan
         </div>
-      </div>
-      {% endfor %}
-    </div>
 
-    <div class="section-banner">AUSWÄRTSSPIELE</div>
-    <div class="match-list">
-      {% for m in samstag_auswaerts %}
-      <div class="match-card">
-        <div class="match-time">{{ m.zeit }}<span>UHR</span></div>
-        <div class="match-info">
-          <div class="match-team">{{ m.team }}</div>
-          <div class="match-pairing">{{ m.heim }} – {{ m.gast }}</div>
+        <div class="subtitle">
+            FC Frohlinde Jugend
         </div>
-      </div>
-      {% endfor %}
+
     </div>
-  </div>
 
-  <!-- SONNTAG -->
-  <div class="column">
-    <div class="day-header">{{ sonntag_datum }}</div>
 
-    <div class="section-banner">HEIMSPIELE</div>
-    <div class="match-list">
-      {% for m in sonntag_heim %}
-      <div class="match-card">
-        <div class="match-time">{{ m.zeit }}<span>UHR</span></div>
-        <div class="match-info">
-          <div class="match-team">{{ m.team }}</div>
-          <div class="match-pairing">{{ m.heim }} – {{ m.gast }}</div>
+    {% if spiele %}
+
+        {% for spiel in spiele %}
+
+        <div class="spiel">
+
+            <div class="spiel-header">
+
+                <div class="datum">
+                    {{ spiel.datum_formatiert }}
+                </div>
+
+                <div class="wettbewerb">
+                    {{ spiel.wettbewerb }}
+                </div>
+
+            </div>
+
+
+            <div class="teams">
+
+                <div class="team heim">
+                    {{ spiel.heim }}
+                </div>
+
+                <div class="zeit">
+                    {{ spiel.zeit }}
+                </div>
+
+                <div class="team gast">
+                    {{ spiel.gast }}
+                </div>
+
+            </div>
+
         </div>
-      </div>
-      {% endfor %}
-    </div>
 
-    <div class="section-banner">AUSWÄRTSSPIELE</div>
-    <div class="match-list">
-      {% for m in sonntag_auswaerts %}
-      <div class="match-card">
-        <div class="match-time">{{ m.zeit }}<span>UHR</span></div>
-        <div class="match-info">
-          <div class="match-team">{{ m.team }}</div>
-          <div class="match-pairing">{{ m.heim }} – {{ m.gast }}</div>
+        {% endfor %}
+
+    {% else %}
+
+        <div class="spiel">
+
+            <div class="team">
+                Dieses Wochenende stehen
+                keine Spiele an.
+            </div>
+
         </div>
-      </div>
-      {% endfor %}
-    </div>
 
-    {% if turniere %}
-    <div class="tourney-box">
-      <div class="tourney-title">🏆 Turnierspiele</div>
-      {% for t in turniere %}
-      <div class="tourney-row">
-        <span>{{ t.zeit }} Uhr</span>
-        <span>{{ t.heim }} vs. {{ t.gast }}</span>
-      </div>
-      {% endfor %}
-    </div>
     {% endif %}
-  </div>
-</div>
 
-<div class="footer">
-  <div>
-    <div class="slogan">GEMEINSAM. STARK. FROHLINDE.</div>
-    <div class="socials">
-      <span>#FCFROHLINDE</span> • <span>Instagram</span> • <span>Facebook</span> • <span>TikTok</span>
+
+    <div class="footer">
+
+        FC Frohlinde e.V. · Jugend
+
     </div>
-  </div>
+
 </div>
 
 </body>
+
 </html>
