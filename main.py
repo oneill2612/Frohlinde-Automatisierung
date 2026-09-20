@@ -25,8 +25,10 @@ def hole_spieldaten():
             if btn.count() > 0: btn.first.click(timeout=3000)
         except: pass
 
-        # Warten, bis die Tabelle wirklich da ist
-        page.wait_for_selector("table", timeout=10000)
+        # FEHLER BEHOBEN: Wir warten spezifisch auf die echten Fussball-Tabellen (.club-name)
+        try:
+            page.wait_for_selector(".club-name", timeout=10000)
+        except: pass
 
         for _ in range(15):
             try:
@@ -49,7 +51,6 @@ def hole_spieldaten():
     sa_such_datum = "26.09."
     so_such_datum = "27.09."
     
-    # Zustand-Speicher für das Durchlaufen der Tabelle
     aktuelles_datum_str = ""
     aktuelle_zeit = "--:--"
     aktueller_wettbewerb = "Senioren"
@@ -64,7 +65,7 @@ def hole_spieldaten():
         is_match_row = len(clubs) >= 2 or (" : " in row_text)
 
         if not is_match_row:
-            # 1. Info-Zeile parsen (z.B. "Sa, 26.09.26 | 10:00 E-Junioren ...")
+            # 1. Info-Zeile parsen
             date_match = re.search(r'(Mo|Di|Mi|Do|Fr|Sa|So),\s*(\d{2}\.\d{2}\.)', row_text)
             if date_match:
                 aktuelles_datum_str = date_match.group(2)
@@ -77,13 +78,13 @@ def hole_spieldaten():
             if team_match:
                 aktueller_wettbewerb = team_match.group(1).strip()
         else:
-            # 2. Spiel-Zeile parsen (z.B. "SpVgg. Röhlinghausen : FC Frohlinde")
+            # 2. Spiel-Zeile parsen
             if sa_such_datum in aktuelles_datum_str:
                 tag = "SA"
             elif so_such_datum in aktuelles_datum_str:
                 tag = "SO"
             else:
-                continue # Falsches Datum, überspringen
+                continue 
 
             heim, gast = "", ""
             if len(clubs) >= 2:
