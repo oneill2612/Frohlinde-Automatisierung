@@ -21,13 +21,14 @@ def hole_spieldaten():
         page.goto(URL, timeout=60000, wait_until="networkidle")
 
         try:
-            btn = page.locator("button:has-text('Zustimmen')")
+            btn = page.locator("button:has-text('Zustimmen'), button:has-text('Akzeptieren')")
             if btn.count() > 0: btn.first.click(timeout=3000)
         except: pass
 
-        for _ in range(12):
+        # Öfter klicken (15x), damit der 26.09. wirklich zu 100% in die Liste geladen wird!
+        for _ in range(15):
             try:
-                btn = page.locator(".load-more-button")
+                btn = page.locator(".load-more-button, a:has-text('Mehr laden')")
                 if btn.count() > 0 and btn.first.is_visible():
                     btn.first.click()
                     page.wait_for_timeout(1500)
@@ -40,81 +41,85 @@ def hole_spieldaten():
     soup = BeautifulSoup(html, "html.parser")
     spiele = []
 
-    # HART CODIERT AUF NÄCHSTES WOCHENENDE FÜR DEN TEST (26.09. und 27.09.)
     sa_str = "26.09.2026"
     so_str = "27.09.2026"
     
-    # Suche alle Spiele in den Match-Zeilen
-    match_rows = soup.select(".match-row")
+    # Wir suchen nach der verkürzten Schreibweise, falls das Jahr fehlt!
+    sa_such_datum = "26.09."
+    so_such_datum = "27.09."
     
-    # Wir iterieren durch die Tabelle. Da Datum und Uhrzeit oft in separaten Headern (row-headline) 
-    # VOR den Spielen stehen, müssen wir uns diese merken.
     aktuelles_datum = None
     aktuelle_zeit = "--:--"
     aktueller_wettbewerb = "Senioren"
     
-    for tr in soup.select("table tbody tr"):
-        row_class = tr.get("class", [])
+    for tr in soup.find_all("tr"):
+        row_text = tr.get_text(" ", strip=True)
+        row_text = bereinige_string(row_text)
         
-        # 1. Wenn es eine Header-Zeile ist, merke dir die Metadaten
-        if "row-headline" in row_class:
-            header_text = tr.get_text(" ", strip=True)
-            
-            # Datum extrahieren (z.B. "Samstag, 26.09.2026")
-            if "26.09.2026" in header_text:
+        # 1. Ist das eine Datum-Überschrift? (Enthält "Samstag"/"Sonntag" und "Uhr")
+        if ("Samstag" in row_text or "Sonntag" in row_text) and "Uhr" in row_text:
+            if sa_such_datum in row_text:
                 aktuelles_datum = "SA"
-            elif "27.09.2026" in header_text:
+            elif so_such_datum in row_text:
                 aktuelles_datum = "SO"
             else:
-                aktuelles_datum = None # Falsches Wochenende, ignorieren
-                
-            # Zeit extrahieren
-            t_match = re.search(r'(\d{1,2}:\d{2})', header_text)
+                aktuelles_datum = None
+            
+            t_match = re.search(r'(\d{1,2}:\d{2})\s*Uhr', row_text)
             if t_match: aktuelle_zeit = t_match.group(1)
             
-            # Team / Wettbewerb extrahieren (nach dem Pipe-Symbol)
-            if "|" in header_text:
-                parts = header_text.split("|")
-                if len(parts) > 1:
+            if "|" in row_text:
+                parts = row_text.split("|")
+                if len(parts) >= 2:
                     raw_team = parts[1]
-                    # Kürzel entfernen
                     clean_team = re.sub(r'(AME|ME|FS|TU|Kreisliga.*?|Bezirksliga.*?)', '', raw_team, flags=re.IGNORECASE)
                     aktueller_wettbewerb = bereinige_string(clean_team)
+            continue
             
-            continue # Springe zur nächsten Zeile (dem eigentlichen Spiel)
+        # 2. Spielpaarung auslesen, wenn wir am richtigen Tag sind
+        if aktuelles_datum:
+            clubs = tr.select(".club-name, .column-club")
+            heim, gast = "", ""
             
-        # 2. Wenn es eine Spiel-Zeile ist und wir am richtigen Wochenende sind
-        if "match-row" in row_class and aktuelles_datum is not None:
-            # Heim- und Gastmannschaft exakt über die dafür vorgesehenen CSS-Klassen auslesen
-            heim_node = tr.select_one(".club-name-home, .column-club:nth-of-type(3)")
-            gast_node = tr.select_one(".club-name-guest, .column-club:nth-of-type(5)")
-            
-            # Wenn es diese Klassen nicht gibt (passiert bei Turnieren), nimm allgemeine Klassen
-            if not heim_node or not gast_node:
-                clubs = tr.select(".club-name")
-                if len(clubs) >= 2:
-                    heim_node = clubs[0]
-                    gast_node = clubs[1]
-            
-            if heim_node and gast_node:
-                heim = bereinige_string(heim_node.get_text(strip=True))
-                gast = bereinige_string(gast_node.get_text(strip=True))
+            if len(clubs) >= 2:
+                heim = bereinige_string(clubs[0].get_text(strip=True))
+                gast = bereinige_string(clubs[-1].get_text(strip=True))
+            elif ":" in row_text or "-" in row_text:
+                trenner = ":" if ":" in row_text else "-"
+                parts = row_text.split(trenner)
+                if len(parts) >= 2:
+                    heim_parts = parts[0].strip().split()
+                    heim = " ".join(heim_parts[-3:]) if len(heim_parts) >= 3 else parts[0].strip()
+                    gast_parts = parts[1].strip().split()
+                    gast = " ".join(gast_parts[:3]) if len(gast_parts) >= 3 else parts[1].strip()
+
+            if "Frohlinde" in heim or "Frohlinde" in gast:
+                ist_heim = "Frohlinde" in heim
+                ist_turnier = "turnier" in aktueller_wettbewerb.lower() or "TU |" in row_text
                 
-                # Wir nehmen das Spiel nur auf, wenn Frohlinde auch mitspielt
-                if "Frohlinde" in heim or "Frohlinde" in gast:
-                    ist_heim = "Frohlinde" in heim
-                    ist_turnier = "turnier" in aktueller_wettbewerb.lower()
-                    
-                    spiele.append({
-                        "tag": aktuelles_datum,
-                        "zeit": aktuelle_zeit,
-                        "team": aktueller_wettbewerb,
-                        "heim": heim,
-                        "gast": gast,
-                        "ist_heim": ist_heim,
-                        "ist_turnier": ist_turnier
-                    })
-                    
+                spiele.append({
+                    "tag": aktuelles_datum,
+                    "zeit": aktuelle_zeit,
+                    "team": aktueller_wettbewerb,
+                    "heim": heim,
+                    "gast": gast,
+                    "ist_heim": ist_heim,
+                    "ist_turnier": ist_turnier
+                })
+                
+    # Sicherheits-Netz: Wenn absolut NICHTS gefunden wurde, erzeugen wir ein Debug-Spiel, 
+    # damit das Bild nicht einfach nur leer ist!
+    if not spiele:
+        spiele.append({
+            "tag": "SA",
+            "zeit": "00:00",
+            "team": "Fehler-Diagnose",
+            "heim": f"Keine Daten für {sa_such_datum} oder {so_such_datum} gefunden",
+            "gast": "Wurden auf Fussball.de schon Spiele eingetragen?",
+            "ist_heim": True,
+            "ist_turnier": False
+        })
+
     return sa_str, so_str, spiele
 
 def erstelle_und_sende():
